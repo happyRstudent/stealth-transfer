@@ -9,7 +9,7 @@ import {
   estimateTransferFee,
   getBatchRange,
   hydrateIntermediateKeypairs,
-} from '../src/transfer.js';
+} from '../src/chains/solana/transfer.js';
 
 describe('estimateTransferFee', () => {
   it('matches the current default route fee', () => {
@@ -44,7 +44,7 @@ describe('recoverable route helpers', () => {
     const hydrated = hydrateIntermediateKeypairs(restored);
 
     assert.equal(restored.version, 1);
-    assert.equal(restored.sourcePublicKey, source.toBase58());
+    assert.equal(restored.sourceAddress, source.toBase58());
     assert.equal(restored.destinationAddress, destination);
     assert.equal(restored.hopCount, 4);
     assert.equal(hydrated.length, 4);

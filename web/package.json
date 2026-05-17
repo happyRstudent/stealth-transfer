@@ -1,5 +1,5 @@
 {
-  "name": "solana-stealth-transfer-web",
+  "name": "stealth-transfer-web",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,7 +10,8 @@
   "dependencies": {
     "@solana/web3.js": "^1.98.0",
     "bs58": "^6.0.0",
-    "buffer": "^6.0.3"
+    "buffer": "^6.0.3",
+    "viem": "^2.21.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.60.0",

@@ -83,6 +83,45 @@ body {
   font-size: 13px; color: var(--text-dim); margin-top: 4px; padding-left: 40px;
 }
 
+/* ─── Chain tabs ──────────────────────────────────────────────────────── */
+
+.chain-tabs {
+  display: flex; gap: 4px; margin-top: 20px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px;
+  width: fit-content;
+}
+.chain-tab {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 18px; border: none; border-radius: calc(var(--radius) - 2px);
+  background: transparent; color: var(--text-dim);
+  font-family: var(--font); font-size: 13px; font-weight: 600;
+  cursor: pointer; transition: all var(--transition);
+  letter-spacing: 0.3px;
+}
+.chain-tab:hover { color: var(--text); background: rgba(99, 102, 241, 0.08); }
+.chain-tab.active {
+  background: var(--primary); color: #fff;
+  box-shadow: 0 2px 12px var(--primary-glow);
+}
+.chain-tab-icon { font-size: 15px; line-height: 1; }
+.chain-tab[data-chain="solana"].active { background: linear-gradient(135deg, #9945FF, #14F195); }
+.chain-tab[data-chain="eth"].active    { background: linear-gradient(135deg, #627EEA, #8A92B2); }
+.chain-tab[data-chain="bsc"].active    { background: linear-gradient(135deg, #F3BA2F, #F0B90B); }
+.chain-tab[data-chain="base"].active   { background: linear-gradient(135deg, #0052FF, #6C8CFF); }
+
+/* ─── Field hint ──────────────────────────────────────────────────────── */
+
+.field-hint {
+  display: block; font-size: 11px; color: var(--text-muted); margin-top: 4px;
+  font-family: var(--font-mono);
+}
+.field-hint--warn {
+  color: var(--warn);
+}
+
 /* ─── Cards ────────────────────────────────────────────────────────────── */
 
 .card {

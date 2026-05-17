@@ -6,18 +6,27 @@ import {
   SystemProgram,
   LAMPORTS_PER_SOL,
 } from '@solana/web3.js';
-import { StealthTransferOptions, BatchResult, TransferSummary } from './types.js';
 import { createConnection } from './rpc.js';
+import type { StealthTransferOptions, SolanaFeeEstimate, RecoverableRoute } from './types.js';
+import type { BatchResult, TransferSummary, TransferProgress } from '../../shared/types.js';
+import {
+  bytesToBase64,
+  encryptRecoveryBundle as encryptBundle,
+  decryptRecoveryBundle as decryptBundle,
+} from '../../shared/index.js';
+import type { DecryptedRecoveryBundle } from '../../shared/types.js';
 
-/** Solana rent-exempt minimum for a 0-byte account (basic wallet). */
+// ═══════════════════════════════════════════════════════════════════════════
+//  Constants
+// ═══════════════════════════════════════════════════════════════════════════
+
 const RENT_EXEMPT_MIN_LAMPORTS = 890_880;
-/** Maximum serialized transaction size allowed by Solana. */
 const MAX_TX_SIZE = 1232;
-/** Base fee per signature. */
 const LAMPORTS_PER_SIG = 5000;
 
-const RECOVERY_BUNDLE_VERSION = 1;
-const RECOVERY_KDF_ITERATIONS = 250_000;
+// ═══════════════════════════════════════════════════════════════════════════
+//  Types
+// ═══════════════════════════════════════════════════════════════════════════
 
 export type ProgressEvent = {
   type: 'info' | 'success' | 'error' | 'warn';
@@ -27,94 +36,45 @@ export type ProgressEvent = {
 
 export type ProgressHandler = (event: ProgressEvent) => void;
 
-export type FeeEstimate = {
-  totalHops: number;
-  batchCount: number;
-  signatureCount: number;
-  feeLamports: number;
-  feeSol: number;
-};
+export type {
+  SolanaFeeEstimate as FeeEstimate,
+  RecoverableRoute,
+} from './types.js';
+export type {
+  TransferSummary,
+  BatchResult,
+  TransferProgress,
+  DecryptedRecoveryBundle,
+} from '../../shared/types.js';
+export type { RecoveryBundle } from '../../shared/types.js';
 
-export type RecoverableRoute = {
-  sourcePublicKey: string;
-  destinationAddress: string;
-  hopCount: number;
-  intermediateKeypairs: Keypair[];
-  routePublicKeys: string[];
-};
-
-export type RecoveryPayload = {
-  sourcePublicKey: string;
-  destinationAddress: string;
-  routePublicKeys: string[];
-  intermediateSecretKeys: string[];
-  amount: number;
-  hopCount: number;
-  batchSize: number;
-  rpcUrl: string;
-  lastCompletedBatch: number;
-  transactions: string[];
-};
-
-export type RecoveryBundle = {
-  version: 1;
-  createdAt: string;
-  kdf: 'PBKDF2-SHA256';
-  iterations: number;
-  salt: string;
-  iv: string;
-  ciphertext: string;
-};
-
-export type DecryptedRecoveryBundle = RecoveryPayload & {
-  version: 1;
-  createdAt: string;
-};
+// ═══════════════════════════════════════════════════════════════════════════
+//  Wallet generation
+// ═══════════════════════════════════════════════════════════════════════════
 
 export function generateIntermediateWallets(count: number): Keypair[] {
   return Array.from({ length: count }, () => Keypair.generate());
 }
 
-function bytesToBase64(bytes: Uint8Array): string {
-  let binary = '';
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary);
-}
+// ═══════════════════════════════════════════════════════════════════════════
+//  Fee estimation
+// ═══════════════════════════════════════════════════════════════════════════
 
-function base64ToBytes(value: string): Uint8Array {
-  const binary = atob(value);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes;
-}
-
-function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
-  const buffer = new ArrayBuffer(bytes.byteLength);
-  new Uint8Array(buffer).set(bytes);
-  return buffer;
-}
-
-async function deriveRecoveryKey(password: string, salt: Uint8Array): Promise<CryptoKey> {
-  const material = await crypto.subtle.importKey(
-    'raw',
-    new TextEncoder().encode(password),
-    'PBKDF2',
-    false,
-    ['deriveKey'],
-  );
-
-  return crypto.subtle.deriveKey(
-    {
-      name: 'PBKDF2',
-      salt: toArrayBuffer(salt),
-      iterations: RECOVERY_KDF_ITERATIONS,
-      hash: 'SHA-256',
-    },
-    material,
-    { name: 'AES-GCM', length: 256 },
-    false,
-    ['encrypt', 'decrypt'],
-  );
+export function getBatchRange({
+  batchIndex,
+  hopCount,
+  batchSize,
+}: {
+  batchIndex: number;
+  hopCount: number;
+  batchSize: number;
+}): { hopStart: number; hopEnd: number } {
+  const totalHops = hopCount + 1;
+  const hopStart = batchIndex * batchSize;
+  return {
+    hopStart,
+    hopEnd: Math.min(hopStart + batchSize, totalHops),
+  };
 }
 
 export function estimateTransferFee({
@@ -123,7 +83,7 @@ export function estimateTransferFee({
 }: {
   hopCount: number;
   batchSize: number;
-}): FeeEstimate {
+}): SolanaFeeEstimate {
   const totalHops = hopCount + 1;
   const batchCount = Math.ceil(totalHops / batchSize);
   let signatureCount = 0;
@@ -144,22 +104,9 @@ export function estimateTransferFee({
   };
 }
 
-export function getBatchRange({
-  batchIndex,
-  hopCount,
-  batchSize,
-}: {
-  batchIndex: number;
-  hopCount: number;
-  batchSize: number;
-}): { hopStart: number; hopEnd: number } {
-  const totalHops = hopCount + 1;
-  const hopStart = batchIndex * batchSize;
-  return {
-    hopStart,
-    hopEnd: Math.min(hopStart + batchSize, totalHops),
-  };
-}
+// ═══════════════════════════════════════════════════════════════════════════
+//  Route management
+// ═══════════════════════════════════════════════════════════════════════════
 
 export function createRecoverableRoute({
   sourcePublicKey,
@@ -184,6 +131,10 @@ export function createRecoverableRoute({
   };
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+//  Recovery encryption / decryption (Solana wrappers)
+// ═══════════════════════════════════════════════════════════════════════════
+
 export async function encryptRecoveryBundle({
   password,
   route,
@@ -200,73 +151,47 @@ export async function encryptRecoveryBundle({
   rpcUrl: string;
   lastCompletedBatch?: number;
   transactions?: string[];
-}): Promise<RecoveryBundle> {
-  if (password.length < 8) {
-    throw new Error('Recovery password must be at least 8 characters.');
-  }
-
-  const salt = crypto.getRandomValues(new Uint8Array(16));
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const key = await deriveRecoveryKey(password, salt);
-  const payload: RecoveryPayload = {
-    sourcePublicKey: route.sourcePublicKey,
+}) {
+  return encryptBundle({
+    password,
+    chain: 'solana',
+    sourceAddress: route.sourcePublicKey,
     destinationAddress: route.destinationAddress,
-    routePublicKeys: route.routePublicKeys,
+    routeAddresses: route.routePublicKeys,
     intermediateSecretKeys: route.intermediateKeypairs.map((keypair) =>
       bytesToBase64(keypair.secretKey),
     ),
     amount,
-    hopCount: route.hopCount,
     batchSize,
     rpcUrl,
     lastCompletedBatch,
     transactions,
-  };
-  const encoded = new TextEncoder().encode(JSON.stringify(payload));
-  const ciphertext = new Uint8Array(
-    await crypto.subtle.encrypt({ name: 'AES-GCM', iv: toArrayBuffer(iv) }, key, encoded),
-  );
-
-  return {
-    version: RECOVERY_BUNDLE_VERSION,
-    createdAt: new Date().toISOString(),
-    kdf: 'PBKDF2-SHA256',
-    iterations: RECOVERY_KDF_ITERATIONS,
-    salt: bytesToBase64(salt),
-    iv: bytesToBase64(iv),
-    ciphertext: bytesToBase64(ciphertext),
-  };
+  });
 }
 
 export async function decryptRecoveryBundle(
-  bundle: RecoveryBundle,
+  bundle: Parameters<typeof decryptBundle>[0],
   password: string,
-): Promise<DecryptedRecoveryBundle> {
-  if (bundle.version !== RECOVERY_BUNDLE_VERSION) {
-    throw new Error(`Unsupported recovery bundle version: ${bundle.version}`);
-  }
-
-  const salt = base64ToBytes(bundle.salt);
-  const iv = base64ToBytes(bundle.iv);
-  const key = await deriveRecoveryKey(password, salt);
-  const plaintext = await crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv: toArrayBuffer(iv) },
-    key,
-    toArrayBuffer(base64ToBytes(bundle.ciphertext)),
-  );
-  const payload = JSON.parse(new TextDecoder().decode(plaintext)) as RecoveryPayload;
-  return {
-    version: bundle.version,
-    createdAt: bundle.createdAt,
-    ...payload,
-  };
+) {
+  const result = await decryptBundle(bundle, password);
+  // Backward compat: old bundles may not have `chain`
+  if (!result.chain) (result as any).chain = 'solana';
+  return result;
 }
 
 export function hydrateIntermediateKeypairs(bundle: DecryptedRecoveryBundle): Keypair[] {
-  return bundle.intermediateSecretKeys.map((secretKey) =>
-    Keypair.fromSecretKey(base64ToBytes(secretKey)),
-  );
+  return bundle.intermediateSecretKeys.map((secretKey) => {
+    // secretKey is base64-encoded 64-byte Solana secret key
+    const binary = atob(secretKey);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return Keypair.fromSecretKey(bytes);
+  });
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  Recovery transactions
+// ═══════════════════════════════════════════════════════════════════════════
 
 export function buildRecoveryTransaction({
   fromKeypair,
@@ -358,10 +283,10 @@ export async function recoverIntermediateBalances({
     }
 
     results.push({
-      txSignature: signature,
+      txHashes: [signature],
       hopStart: index,
       hopEnd: index + 1,
-      feeLamports: LAMPORTS_PER_SIG,
+      fee: `${LAMPORTS_PER_SIG / LAMPORTS_PER_SOL} SOL`,
     });
     onProgress?.({
       type: 'success',
@@ -373,16 +298,10 @@ export async function recoverIntermediateBalances({
   return results;
 }
 
-/**
- * Build and sign one batch of chained transfers as a single atomic transaction.
- *
- * Atomic batch mechanism:
- *   [W_start] → [W_start+1] → ... → [W_end]
- *
- * Each intermediate receives `amountLamports` (>> rent-exempt minimum),
- * then forwards it all — ending at 0, garbage collected.
- * Source signs every batch as fee payer so no fee is deducted from intermediates.
- */
+// ═══════════════════════════════════════════════════════════════════════════
+//  Atomic batch builder
+// ═══════════════════════════════════════════════════════════════════════════
+
 function buildAndSignBatch(
   wallets: PublicKey[],
   hopStart: number,
@@ -418,13 +337,10 @@ function buildAndSignBatch(
   return tx;
 }
 
-/**
- * Execute a stealth transfer routing SOL through N intermediate wallets.
- *
- * @param options  Transfer parameters
- * @param onProgress  Optional callback for web UI progress updates
- * @returns Transfer summary
- */
+// ═══════════════════════════════════════════════════════════════════════════
+//  Execute stealth transfer
+// ═══════════════════════════════════════════════════════════════════════════
+
 export async function executeStealthTransfer(
   options: StealthTransferOptions,
   onProgress?: ProgressHandler,
@@ -437,7 +353,7 @@ export async function executeStealthTransfer(
   const destinationPubkey = new PublicKey(destinationAddress);
   const amountLamports = Math.floor(amount * LAMPORTS_PER_SOL);
 
-  // ─── Validation ───────────────────────────────────────────────────────────
+  // ─── Validation ─────────────────────────────────────────────────────────
 
   if (amountLamports < RENT_EXEMPT_MIN_LAMPORTS) {
     throw new Error(
@@ -446,14 +362,12 @@ export async function executeStealthTransfer(
     );
   }
 
-  // totalHops = Source→W1 + W1→W2 + ... + W{N-1}→Destination = hopCount + 1
   const { totalHops, batchCount, feeLamports: estimatedFee } = estimateTransferFee({
     hopCount,
     batchSize,
   });
   const totalNeeded = amountLamports + estimatedFee;
 
-  // Check balance
   const sourceBalance = await connection.getBalance(sourceKeypair.publicKey);
   if (sourceBalance < totalNeeded) {
     throw new Error(
@@ -471,7 +385,6 @@ export async function executeStealthTransfer(
     throw new Error(`Start batch must be between 0 and ${batchCount - 1}.`);
   }
 
-  // Route: [Source, W0, W1, ..., W{N-1}, Destination]
   const wallets: PublicKey[] = [
     sourceKeypair.publicKey,
     ...intermediates.map((k) => k.publicKey),
@@ -495,7 +408,7 @@ export async function executeStealthTransfer(
     emit('info', `Delay: ${delayMs}ms (random jitter between batches)`);
   }
 
-  // ─── Execute batches ──────────────────────────────────────────────────────
+  // ─── Execute batches ────────────────────────────────────────────────────
 
   const results: BatchResult[] = [];
 
@@ -533,11 +446,16 @@ export async function executeStealthTransfer(
     }
 
     const feePaid = tx.signatures.length * LAMPORTS_PER_SIG;
-    results.push({ txSignature: signature, hopStart, hopEnd, feeLamports: feePaid });
+    results.push({
+      txHashes: [signature],
+      hopStart,
+      hopEnd,
+      fee: `${(feePaid / LAMPORTS_PER_SOL).toFixed(9)} SOL`,
+    });
     await options.onBatchConfirmed?.({
       lastCompletedBatch: b,
       nextBatch: b + 1,
-      txSignature: signature,
+      txHash: signature,
       updatedAt: new Date().toISOString(),
     });
 
@@ -552,24 +470,25 @@ export async function executeStealthTransfer(
     }
   }
 
-  // ─── Summary ──────────────────────────────────────────────────────────────
+  // ─── Summary ────────────────────────────────────────────────────────────
 
-  const totalFeeLamports = results.reduce((s, r) => s + r.feeLamports, 0);
+  const totalFeeLamports = results.reduce((s, r) => {
+    const parsed = parseFloat(r.fee);
+    return s + (isNaN(parsed) ? 0 : parsed * LAMPORTS_PER_SOL);
+  }, 0);
   const destBalance = await connection.getBalance(destinationPubkey);
 
   emit('success', `Transfer complete`);
   emit('info', `Destination balance: ${(destBalance / LAMPORTS_PER_SOL).toFixed(9)} SOL`);
-  emit('info', `Network fee: ${(totalFeeLamports / LAMPORTS_PER_SOL).toFixed(9)} SOL ` +
-    `(vs tokentools 0.005 SOL = ${(0.005 / (totalFeeLamports / LAMPORTS_PER_SOL)).toFixed(0)}× markup)`);
+  emit('info', `Network fee: ${(totalFeeLamports / LAMPORTS_PER_SOL).toFixed(9)} SOL`);
 
   return {
     batches: results,
-    totalFeeLamports,
-    totalFeeSol: totalFeeLamports / LAMPORTS_PER_SOL,
+    totalFee: `${(totalFeeLamports / LAMPORTS_PER_SOL).toFixed(9)} SOL`,
     amountTransferred: amount,
     hopCount,
     batchCount,
-    intermediateWallets: intermediates.map((k) => k.publicKey),
+    intermediateAddresses: intermediates.map((k) => k.publicKey.toBase58()),
     success: true,
   };
 }

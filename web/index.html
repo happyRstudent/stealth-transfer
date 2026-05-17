@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Stealth Transfer · Solana</title>
+  <title>Stealth Transfer · Multi-Chain</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='28' font-size='28'>🛡️</text></svg>" />
@@ -11,7 +11,6 @@
 </head>
 <body>
   <div id="app">
-    <!-- Decorative background -->
     <div class="bg-glow bg-glow--1"></div>
     <div class="bg-glow bg-glow--2"></div>
 
@@ -20,120 +19,212 @@
       <div class="header-brand">
         <span class="header-icon">🛡️</span>
         <h1>Stealth Transfer</h1>
-        <span class="header-badge">Solana</span>
       </div>
-      <div class="header-sub">Recoverable multi-hop SOL transfer experiment</div>
+      <div class="header-sub">Recoverable multi-hop native token transfer experiment</div>
+
+      <!-- Chain selector tabs -->
+      <nav class="chain-tabs" id="chainTabs">
+        <button class="chain-tab active" data-chain="solana">
+          <span class="chain-tab-icon">◎</span> SOLANA
+        </button>
+        <button class="chain-tab" data-chain="eth">
+          <span class="chain-tab-icon">⟠</span> ETH
+        </button>
+        <button class="chain-tab" data-chain="bsc">
+          <span class="chain-tab-icon">⬡</span> BSC
+        </button>
+        <button class="chain-tab" data-chain="base">
+          <span class="chain-tab-icon">🔵</span> BASE
+        </button>
+      </nav>
     </header>
 
-    <!-- Main content -->
     <main class="main">
-      <!-- Left: Form -->
-      <section class="card form-panel" id="formPanel">
-        <h2 class="card-title">Transfer Configuration</h2>
+      <!-- ─── Solana Form Panel ─────────────────────────────────────── -->
+      <section class="card form-panel" id="solanaPanel">
+        <h2 class="card-title">Solana Transfer Configuration</h2>
         <div class="notice notice--warn">
           This is not strong anonymity. Same-amount hops and fee-payer patterns can be linked on-chain.
         </div>
 
-        <!-- Private Key -->
         <div class="field">
-          <label class="field-label" for="privKey">Source Private Key</label>
+          <label class="field-label" for="solPrivKey">Source Private Key</label>
           <div class="input-wrapper">
-            <textarea
-              id="privKey"
-              class="input input--mono"
-              rows="3"
-              placeholder="Base58 private key or JSON array..."
-              spellcheck="false"
-            ></textarea>
-            <button class="input-toggle" id="toggleKey" title="Toggle visibility">👁️</button>
+            <textarea id="solPrivKey" class="input input--mono" rows="3"
+              placeholder="Base58 private key or JSON array..." spellcheck="false"></textarea>
+            <button class="input-toggle" id="solToggleKey" title="Toggle visibility">👁️</button>
           </div>
         </div>
 
-        <!-- Destination -->
         <div class="field">
-          <label class="field-label" for="destAddr">Destination Address</label>
-          <input id="destAddr" class="input input--mono" type="text"
+          <label class="field-label" for="solDestAddr">Destination Address</label>
+          <input id="solDestAddr" class="input input--mono" type="text"
             placeholder="Solana wallet address (Base58)" spellcheck="false" />
+          <span class="field-hint" id="solAddrHint"></span>
         </div>
 
-        <!-- Hops + Amount row -->
         <div class="field-row">
           <div class="field">
-            <label class="field-label" for="hopCount">Intermediate Wallets</label>
+            <label class="field-label" for="solHopCount">Intermediate Wallets</label>
             <div class="slider-group">
-              <input id="hopCount" type="range" min="2" max="100" value="10" />
-              <input id="hopCountNum" class="input input--number" type="number" min="2" max="100" value="10" />
-              <span class="slider-value" id="hopCountVal">10</span>
+              <input id="solHopCount" type="range" min="2" max="100" value="10" />
+              <input id="solHopCountNum" class="input input--number" type="number" min="2" max="100" value="10" />
+              <span class="slider-value" id="solHopCountVal">10</span>
             </div>
           </div>
           <div class="field field--narrow">
-            <label class="field-label" for="amount">Amount (SOL)</label>
-            <input id="amount" class="input" type="number" step="0.01" min="0.001" value="0.1" />
+            <label class="field-label" for="solAmount">Amount (SOL)</label>
+            <input id="solAmount" class="input" type="number" step="0.01" min="0.001" value="0.1" />
           </div>
         </div>
 
-        <!-- RPC -->
         <div class="field">
-          <label class="field-label" for="rpcUrl">RPC Endpoint</label>
+          <label class="field-label" for="solRpcUrl">RPC Endpoint</label>
           <div class="rpc-group">
-            <select id="rpcUrl" class="input input--select">
-              <option value="https://api.devnet.solana.com">Devnet official public (testing)</option>
-              <option value="https://api.mainnet.solana.com">Mainnet official public (rate-limited)</option>
-              <option value="https://api.testnet.solana.com">Testnet official public (testing)</option>
+            <select id="solRpcUrl" class="input input--select">
+              <option value="https://api.devnet.solana.com">Devnet (testing)</option>
+              <option value="https://api.mainnet.solana.com">Mainnet (rate-limited)</option>
+              <option value="https://api.testnet.solana.com">Testnet (testing)</option>
               <option value="custom">Custom private/paid RPC…</option>
             </select>
-            <input id="rpcCustom" class="input input--mono input--hidden" type="text"
+            <input id="solRpcCustom" class="input input--mono input--hidden" type="text"
               placeholder="https://your-custom-rpc.com" />
-            <button class="btn btn--outline btn--sm" id="testRpc" title="Test RPC latency">
-              <span class="dot dot--idle" id="rpcDot"></span> Test
+            <button class="btn btn--outline btn--sm" id="solTestRpc" title="Test RPC latency">
+              <span class="dot dot--idle" id="solRpcDot"></span> Test
             </button>
           </div>
         </div>
 
-        <!-- Delay + Batch row -->
         <div class="field-row">
           <div class="field">
-            <label class="field-label" for="delayMs">Batch Delay (ms)</label>
+            <label class="field-label" for="solDelayMs">Batch Delay (ms)</label>
             <div class="slider-group">
-              <input id="delayMs" type="range" min="0" max="5000" step="100" value="500" />
-              <input id="delayMsNum" class="input input--number" type="number" min="0" max="5000" step="100" value="500" />
-              <span class="slider-value" id="delayMsVal">500</span>
+              <input id="solDelayMs" type="range" min="0" max="5000" step="100" value="500" />
+              <input id="solDelayMsNum" class="input input--number" type="number" min="0" max="5000" step="100" value="500" />
+              <span class="slider-value" id="solDelayMsVal">500</span>
             </div>
           </div>
           <div class="field field--narrow">
-            <label class="field-label" for="batchSize">Batch Size</label>
+            <label class="field-label" for="solBatchSize">Batch Size</label>
             <div class="slider-group">
-              <input id="batchSize" type="range" min="1" max="8" value="5" />
-              <input id="batchSizeNum" class="input input--number" type="number" min="1" max="8" value="5" />
-              <span class="slider-value" id="batchSizeVal">5</span>
+              <input id="solBatchSize" type="range" min="1" max="8" value="5" />
+              <input id="solBatchSizeNum" class="input input--number" type="number" min="1" max="8" value="5" />
+              <span class="slider-value" id="solBatchSizeVal">5</span>
             </div>
           </div>
         </div>
 
         <div class="field">
-          <label class="field-label" for="recoveryPassword">Recovery Password</label>
-          <input id="recoveryPassword" class="input" type="password"
+          <label class="field-label" for="solRecoveryPassword">Recovery Password</label>
+          <input id="solRecoveryPassword" class="input" type="password"
             placeholder="Required to encrypt intermediate wallets before execution" />
           <label class="check-row">
-            <input id="noRecovery" type="checkbox" />
+            <input id="solNoRecovery" type="checkbox" />
             <span>Advanced: run without recovery bundle (funds can be lost if interrupted)</span>
           </label>
         </div>
 
-        <!-- Execute -->
-        <button class="btn btn--primary" id="executeBtn">
-          <span class="btn-icon">🚀</span>
-          Execute Transfer
+        <button class="btn btn--primary" id="solExecuteBtn">
+          <span class="btn-icon">🚀</span> Execute Transfer
         </button>
 
-        <!-- Fee estimate -->
-        <div class="fee-estimate" id="feeEstimate">
+        <div class="fee-estimate" id="solFeeEstimate">
           <span class="fee-label">Estimated fee:</span>
-          <span class="fee-value" id="feeValue">—</span>
+          <span class="fee-value" id="solFeeValue">—</span>
         </div>
       </section>
 
-      <!-- Right: Log Panel -->
+      <!-- ─── EVM Form Panel ───────────────────────────────────────── -->
+      <section class="card form-panel" id="evmPanel" style="display:none">
+        <h2 class="card-title" id="evmPanelTitle">EVM Transfer Configuration</h2>
+        <div class="notice notice--warn">
+          Each hop is a separate on-chain transaction. Gas is deducted at each step.
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="evmPrivKey">Source Private Key</label>
+          <div class="input-wrapper">
+            <textarea id="evmPrivKey" class="input input--mono" rows="2"
+              placeholder="0x-prefixed hex private key (64 hex chars)..." spellcheck="false"></textarea>
+            <button class="input-toggle" id="evmToggleKey" title="Toggle visibility">👁️</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="evmDestAddr">Destination Address</label>
+          <input id="evmDestAddr" class="input input--mono" type="text"
+            placeholder="0x..." spellcheck="false" />
+          <span class="field-hint" id="evmAddrHint"></span>
+        </div>
+
+        <div class="field-row">
+          <div class="field">
+            <label class="field-label" for="evmHopCount">Intermediate Wallets</label>
+            <div class="slider-group">
+              <input id="evmHopCount" type="range" min="2" max="100" value="10" />
+              <input id="evmHopCountNum" class="input input--number" type="number" min="2" max="100" value="10" />
+              <span class="slider-value" id="evmHopCountVal">10</span>
+            </div>
+          </div>
+          <div class="field field--narrow">
+            <label class="field-label" for="evmAmount">Amount</label>
+            <input id="evmAmount" class="input" type="number" step="0.001" min="0.0001" value="0.01" />
+            <span class="field-hint" id="evmAmountHint">ETH</span>
+          </div>
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="evmRpcUrl">RPC Endpoint</label>
+          <div class="rpc-group">
+            <select id="evmRpcUrl" class="input input--select"></select>
+            <input id="evmRpcCustom" class="input input--mono input--hidden" type="text"
+              placeholder="https://your-custom-rpc.com" />
+            <button class="btn btn--outline btn--sm" id="evmTestRpc" title="Test RPC latency">
+              <span class="dot dot--idle" id="evmRpcDot"></span> Test
+            </button>
+          </div>
+        </div>
+
+        <div class="field-row">
+          <div class="field">
+            <label class="field-label" for="evmDelayMs">Batch Delay (ms)</label>
+            <div class="slider-group">
+              <input id="evmDelayMs" type="range" min="0" max="5000" step="100" value="500" />
+              <input id="evmDelayMsNum" class="input input--number" type="number" min="0" max="5000" step="100" value="500" />
+              <span class="slider-value" id="evmDelayMsVal">500</span>
+            </div>
+          </div>
+          <div class="field field--narrow">
+            <label class="field-label" for="evmBatchSize">Batch Size</label>
+            <div class="slider-group">
+              <input id="evmBatchSize" type="range" min="1" max="100" value="5" />
+              <input id="evmBatchSizeNum" class="input input--number" type="number" min="1" max="100" value="5" />
+              <span class="slider-value" id="evmBatchSizeVal">5</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="evmRecoveryPassword">Recovery Password</label>
+          <input id="evmRecoveryPassword" class="input" type="password"
+            placeholder="Required to encrypt intermediate wallets before execution" />
+          <label class="check-row">
+            <input id="evmNoRecovery" type="checkbox" />
+            <span>Advanced: run without recovery bundle (funds can be lost if interrupted)</span>
+          </label>
+        </div>
+
+        <button class="btn btn--primary" id="evmExecuteBtn">
+          <span class="btn-icon">🚀</span> Execute Transfer
+        </button>
+
+        <div class="fee-estimate" id="evmFeeEstimate">
+          <span class="fee-label">Estimated gas:</span>
+          <span class="fee-value" id="evmFeeValue">—</span>
+        </div>
+      </section>
+
+      <!-- ─── Log + Recovery Panel (shared) ────────────────────────── -->
       <section class="card log-panel" id="logPanel">
         <h2 class="card-title">Transfer Log</h2>
         <div class="log-container" id="logContainer">
@@ -151,15 +242,15 @@
             <button class="btn btn--outline btn--sm" id="continueRecovery">Continue</button>
             <button class="btn btn--outline btn--sm" id="sweepRecovery">Sweep to Destination</button>
             <button class="btn btn--outline btn--sm" id="refundRecovery">Refund to Source</button>
+            <button class="btn btn--outline btn--sm" id="exportKeys">Export Keys</button>
           </div>
         </div>
       </section>
     </main>
 
-    <!-- Footer -->
     <footer class="footer">
       <span>Recovery bundles are encrypted locally. Never share raw keys.</span>
-      <span>Open source · Solo dev</span>
+      <span>Open source · Multi-chain</span>
     </footer>
   </div>
 </body>
