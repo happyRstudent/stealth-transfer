@@ -1,0 +1,22 @@
+{
+  "name": "solana-stealth-transfer",
+  "version": "1.0.0",
+  "description": "Solana stealth transfer tool - route SOL through multiple intermediate wallets for privacy",
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "build": "tsc",
+    "test": "tsx --test tests/*.test.ts",
+    "devnet": "tsx src/index.ts --rpc https://api.devnet.solana.com"
+  },
+  "dependencies": {
+    "@solana/web3.js": "^1.98.0",
+    "bs58": "^6.0.0",
+    "commander": "^12.0.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "@types/node": "^22.0.0"
+  }
+}
