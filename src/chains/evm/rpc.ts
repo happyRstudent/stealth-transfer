@@ -12,10 +12,9 @@ export const EVM_GAS_CONFIGS: Record<EvmChainId, EvmGasConfig> = {
 /** Public RPC endpoints for each supported EVM chain. */
 export const EVM_PUBLIC_RPCS: Record<EvmChainId, string[]> = {
   eth: [
-    'https://eth.llamarpc.com',
-    'https://cloudflare-eth.com',
     'https://ethereum-rpc.publicnode.com',
-    'https://rpc.ankr.com/eth',
+    'https://eth-mainnet.public.blastapi.io',
+    'https://rpc.flashbots.net',
   ],
   bsc: [
     'https://bsc-dataseed.binance.org',
@@ -25,9 +24,7 @@ export const EVM_PUBLIC_RPCS: Record<EvmChainId, string[]> = {
   ],
   base: [
     'https://mainnet.base.org',
-    'https://base.llamarpc.com',
     'https://base-rpc.publicnode.com',
-    'https://base.blockpi.network/v1/rpc/public',
   ],
 };
 
