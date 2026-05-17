@@ -2,6 +2,10 @@ import {
   Connection,
   Keypair,
   PublicKey,
+  type BlockheightBasedTransactionConfirmationStrategy,
+  type Commitment,
+  type RpcResponseAndContext,
+  type SignatureResult,
   Transaction,
   SystemProgram,
   LAMPORTS_PER_SOL,
@@ -223,6 +227,91 @@ export function buildRecoveryTransaction({
   return tx;
 }
 
+function isConfirmedOrFinalized(status: {
+  err?: unknown;
+  confirmationStatus?: string | null;
+} | null | undefined): boolean {
+  return (
+    !!status &&
+    status.err === null &&
+    (status.confirmationStatus === 'confirmed' || status.confirmationStatus === 'finalized')
+  );
+}
+
+export async function confirmSolanaTransaction(
+  connection: Connection,
+  strategy: BlockheightBasedTransactionConfirmationStrategy,
+  commitment: Commitment = 'confirmed',
+  options: {
+    maxStatusChecks?: number;
+    statusCheckDelayMs?: number;
+  } = {},
+): Promise<RpcResponseAndContext<SignatureResult>> {
+  try {
+    return await connection.confirmTransaction(strategy, commitment);
+  } catch (error) {
+    const maxStatusChecks = options.maxStatusChecks ?? 20;
+    const statusCheckDelayMs = options.statusCheckDelayMs ?? 1_000;
+
+    for (let attempt = 0; attempt < maxStatusChecks; attempt++) {
+      const status = await connection.getSignatureStatuses(
+        [strategy.signature],
+        { searchTransactionHistory: true },
+      );
+      const signatureStatus = status.value[0];
+
+      if (isConfirmedOrFinalized(signatureStatus)) {
+        return {
+          context: status.context,
+          value: { err: null },
+        };
+      }
+
+      if (signatureStatus?.err) {
+        throw new Error(
+          `Transaction ${strategy.signature} failed after confirmation lookup: ` +
+          `${JSON.stringify(signatureStatus.err)}`,
+        );
+      }
+
+      if (attempt < maxStatusChecks - 1 && statusCheckDelayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, statusCheckDelayMs));
+      }
+    }
+
+    throw error;
+  }
+}
+
+export function inferResumeBatchFromBalances({
+  intermediateBalances,
+  amountLamports,
+  hopCount,
+  batchSize,
+}: {
+  intermediateBalances: number[];
+  amountLamports: number;
+  hopCount: number;
+  batchSize: number;
+}): number {
+  let fundedRouteIndex = 0;
+
+  for (let i = 0; i < intermediateBalances.length; i++) {
+    if (intermediateBalances[i] >= amountLamports) {
+      fundedRouteIndex = i + 1;
+    }
+  }
+
+  if (fundedRouteIndex === 0) return 0;
+
+  for (let batchIndex = 0; batchIndex < Math.ceil((hopCount + 1) / batchSize); batchIndex++) {
+    const { hopStart } = getBatchRange({ batchIndex, hopCount, batchSize });
+    if (hopStart >= fundedRouteIndex) return batchIndex;
+  }
+
+  return Math.ceil((hopCount + 1) / batchSize);
+}
+
 export async function scanIntermediateBalances(
   connection: Connection,
   intermediateKeypairs: Keypair[],
@@ -272,8 +361,13 @@ export async function recoverIntermediateBalances({
       message: `Recovering ${balance.publicKey.toBase58().slice(0, 8)}…`,
     });
 
-    const signature = await connection.sendRawTransaction(tx.serialize(), { skipPreflight: false });
-    const confirmation = await connection.confirmTransaction(
+    const signature = await connection.sendRawTransaction(tx.serialize(), {
+      skipPreflight: false,
+      maxRetries: 20,
+      preflightCommitment: 'confirmed',
+    });
+    const confirmation = await confirmSolanaTransaction(
+      connection,
       { signature, blockhash, lastValidBlockHeight },
       'confirmed',
     );
@@ -347,7 +441,7 @@ export async function executeStealthTransfer(
 ): Promise<TransferSummary> {
   const { sourceKeypair, destinationAddress, hopCount, amount, rpcUrl, delayMs, batchSize } =
     options;
-  const startBatch = options.startBatch ?? 0;
+  let startBatch = options.startBatch ?? 0;
 
   const connection = createConnection(rpcUrl);
   const destinationPubkey = new PublicKey(destinationAddress);
@@ -408,6 +502,36 @@ export async function executeStealthTransfer(
     emit('info', `Delay: ${delayMs}ms (random jitter between batches)`);
   }
 
+  const intermediateBalances = await Promise.all(
+    intermediates.map((keypair) => connection.getBalance(keypair.publicKey)),
+  );
+  const inferredStartBatch = inferResumeBatchFromBalances({
+    intermediateBalances,
+    amountLamports,
+    hopCount,
+    batchSize,
+  });
+  if (inferredStartBatch > startBatch) {
+    emit(
+      'warn',
+      `Detected funds already at a later route wallet; continuing from batch ` +
+      `${inferredStartBatch + 1}/${batchCount}.`,
+    );
+    startBatch = inferredStartBatch;
+  }
+  if (startBatch >= batchCount) {
+    emit('success', 'All batches already appear complete');
+    return {
+      batches: [],
+      totalFee: '0.000000000 SOL',
+      amountTransferred: amount,
+      hopCount,
+      batchCount,
+      intermediateAddresses: intermediates.map((k) => k.publicKey.toBase58()),
+      success: true,
+    };
+  }
+
   // ─── Execute batches ────────────────────────────────────────────────────
 
   const results: BatchResult[] = [];
@@ -433,9 +557,14 @@ export async function executeStealthTransfer(
     emit('info', `Batch ${b + 1}/${batchCount} — ` +
       `hops ${hopStart}–${hopEnd - 1} [${rawTx.length}B, ${tx.signatures.length} sigs]`);
 
-    const signature = await connection.sendRawTransaction(rawTx, { skipPreflight: false });
+    const signature = await connection.sendRawTransaction(rawTx, {
+      skipPreflight: false,
+      maxRetries: 20,
+      preflightCommitment: 'confirmed',
+    });
 
-    const confirmation = await connection.confirmTransaction(
+    const confirmation = await confirmSolanaTransaction(
+      connection,
       { signature, blockhash, lastValidBlockHeight },
       'confirmed',
     );

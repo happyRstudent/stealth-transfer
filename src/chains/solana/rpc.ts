@@ -15,7 +15,8 @@ export function createConnection(rpcUrl: string): Connection {
  * List of reliable public Solana RPC endpoints.
  */
 export const PUBLIC_RPCS = [
-  'https://api.mainnet.solana.com',
+  'https://solana-rpc.publicnode.com',
+  'https://api.mainnet-beta.solana.com',
   'https://api.devnet.solana.com',
   'https://api.testnet.solana.com',
 ];

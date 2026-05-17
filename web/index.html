@@ -82,8 +82,9 @@
           <label class="field-label" for="solRpcUrl">RPC Endpoint</label>
           <div class="rpc-group">
             <select id="solRpcUrl" class="input input--select">
+              <option value="https://solana-rpc.publicnode.com">Mainnet · PublicNode</option>
+              <option value="https://api.mainnet-beta.solana.com">Mainnet · Solana official (may block browser)</option>
               <option value="https://api.devnet.solana.com">Devnet (testing)</option>
-              <option value="https://api.mainnet.solana.com">Mainnet (rate-limited)</option>
               <option value="https://api.testnet.solana.com">Testnet (testing)</option>
               <option value="custom">Custom private/paid RPC…</option>
             </select>

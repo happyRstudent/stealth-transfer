@@ -1,14 +1,18 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import { Keypair, LAMPORTS_PER_SOL, PublicKey } from '@solana/web3.js';
+import { PUBLIC_RPCS } from '../src/chains/solana/rpc.js';
 import {
   buildRecoveryTransaction,
+  confirmSolanaTransaction,
   createRecoverableRoute,
   decryptRecoveryBundle,
   encryptRecoveryBundle,
   estimateTransferFee,
   getBatchRange,
   hydrateIntermediateKeypairs,
+  inferResumeBatchFromBalances,
 } from '../src/chains/solana/transfer.js';
 
 describe('estimateTransferFee', () => {
@@ -20,6 +24,121 @@ describe('estimateTransferFee', () => {
     assert.equal(estimate.signatureCount, 13);
     assert.equal(estimate.feeLamports, 65_000);
     assert.equal(estimate.feeSol, 65_000 / LAMPORTS_PER_SOL);
+  });
+});
+
+describe('Solana RPC defaults', () => {
+  it('keeps the web UI default endpoint aligned with the core default', () => {
+    const html = readFileSync(new URL('../web/index.html', import.meta.url), 'utf8');
+    const match = html.match(/<select id="solRpcUrl"[\s\S]*?<option value="([^"]+)"/);
+
+    assert.equal(match?.[1], PUBLIC_RPCS[0]);
+  });
+});
+
+describe('confirmSolanaTransaction', () => {
+  it('accepts a finalized signature when the RPC confirmation call reports expiry', async () => {
+    let statusChecked = false;
+    const connection = {
+      async confirmTransaction() {
+        throw new Error('Signature abc has expired: block height exceeded.');
+      },
+      async getSignatureStatuses(signatures: string[], config: { searchTransactionHistory: boolean }) {
+        statusChecked = true;
+        assert.deepEqual(signatures, ['abc']);
+        assert.equal(config.searchTransactionHistory, true);
+        return {
+          value: [{
+            err: null,
+            confirmationStatus: 'finalized',
+          }],
+        };
+      },
+    };
+
+    const confirmation = await confirmSolanaTransaction(
+      connection as any,
+      { signature: 'abc', blockhash: 'blockhash', lastValidBlockHeight: 123 },
+    );
+
+    assert.equal(statusChecked, true);
+    assert.equal(confirmation.value.err, null);
+  });
+
+  it('throws when the post-expiry signature status contains an on-chain error', async () => {
+    const connection = {
+      async confirmTransaction() {
+        throw new Error('Signature abc has expired: block height exceeded.');
+      },
+      async getSignatureStatuses() {
+        return {
+          value: [{
+            err: { InstructionError: [0, 'Custom'] },
+            confirmationStatus: 'finalized',
+          }],
+        };
+      },
+    };
+
+    await assert.rejects(
+      () => confirmSolanaTransaction(
+        connection as any,
+        { signature: 'abc', blockhash: 'blockhash', lastValidBlockHeight: 123 },
+      ),
+      /failed after confirmation lookup/,
+    );
+  });
+
+  it('keeps checking briefly when an expired signature is not visible immediately', async () => {
+    let checks = 0;
+    const connection = {
+      async confirmTransaction() {
+        throw new Error('Signature abc has expired: block height exceeded.');
+      },
+      async getSignatureStatuses() {
+        checks += 1;
+        return {
+          value: [checks < 3 ? null : {
+            err: null,
+            confirmationStatus: 'confirmed',
+          }],
+        };
+      },
+    };
+
+    const confirmation = await confirmSolanaTransaction(
+      connection as any,
+      { signature: 'abc', blockhash: 'blockhash', lastValidBlockHeight: 123 },
+      'confirmed',
+      { maxStatusChecks: 3, statusCheckDelayMs: 0 },
+    );
+
+    assert.equal(checks, 3);
+    assert.equal(confirmation.value.err, null);
+  });
+});
+
+describe('inferResumeBatchFromBalances', () => {
+  it('advances to the batch that starts from the funded intermediate wallet', () => {
+    const startBatch = inferResumeBatchFromBalances({
+      intermediateBalances: [0, 0, 0, 0, 300_000_000, 0, 0, 0, 0, 0],
+      amountLamports: 300_000_000,
+      hopCount: 10,
+      batchSize: 5,
+    });
+
+    assert.equal(startBatch, 1);
+  });
+
+  it('does not advance when no intermediate wallet holds the route amount', () => {
+    const startBatch = inferResumeBatchFromBalances({
+      intermediateBalances: [0, 0, 0, 0, 299_999_999],
+      amountLamports: 300_000_000,
+      hopCount: 10,
+      batchSize: 5,
+    });
+
+    assert.equal(startBatch, 0);
   });
 });
 
